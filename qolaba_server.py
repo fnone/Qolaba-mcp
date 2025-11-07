@@ -34,7 +34,7 @@ logging.basicConfig(
 logger = logging.getLogger(__name__)
 
 # Qolaba API Configuration
-QOLABA_API_BASE = "https://api.qolaba.ai"
+QOLABA_API_BASE = "https://qolaba-server-b2b.up.railway.app/api/v1/studio"
 QOLABA_API_TOKEN = os.getenv("QOLABA_API_TOKEN")
 QOLABA_ORG_ID = os.getenv("QOLABA_ORG_ID")
 
@@ -153,7 +153,7 @@ async def qolaba_chat(
 
     try:
         async with await get_http_client() as client:
-            # Qolaba API Request Format
+            # Qolaba API Request Format (basierend auf offiziellem Beispielcode)
             payload = {
                 "llm": llm,
                 "llm_model": llm_model,
@@ -169,6 +169,7 @@ async def qolaba_chat(
                 "temperature": temperature,
                 "image_analyze": False,
                 "enable_tool": internet_search or code_execution or rag,
+                "system_msg": "You are a helpful AI assistant.",
                 "tools": {
                     "tool_list": {
                         "internet_search": internet_search,
@@ -180,15 +181,20 @@ async def qolaba_chat(
                         "csv_analysis": False
                     },
                     "number_of_context": 3,
-                    "pdf_references": [],
+                    "pdf_references": [] if not rag else [""],
                     "embedding_model": ["text-embedding-3-large"] if rag else [],
                     "image_generation_parameters": {}
-                }
+                },
+                "token": QOLABA_API_TOKEN,
+                "orgID": QOLABA_ORG_ID,
+                "function_call_list": [],
+                "systemId": "",
+                "last_user_query": prompt
             }
 
             logger.debug(f"Request Payload: {json.dumps(payload, indent=2)}")
 
-            # Streaming Response
+            # POST Request
             response = await client.post(
                 f"{QOLABA_API_BASE}/chat",
                 json=payload
