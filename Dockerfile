@@ -44,15 +44,16 @@ ENV PATH=/home/mcpuser/.local/bin:$PATH \
     MCP_TRANSPORT="http" \
     PORT=8000
 
-# Expose Port für HTTP Transport
+# Expose Ports
 EXPOSE 8000
+EXPOSE 8001
 
 # Zu non-root user wechseln
 USER mcpuser
 
-# Health Check
+# Health Check (auf Port 8001)
 HEALTHCHECK --interval=30s --timeout=10s --start-period=5s --retries=3 \
-    CMD curl -f http://localhost:${PORT}/health || exit 1
+    CMD curl -f http://localhost:8001/health || exit 1
 
 # Entrypoint Script
 # Unterstützt beide Transport-Modi: stdio und http

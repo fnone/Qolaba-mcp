@@ -56,9 +56,17 @@ docker-compose up -d
 # Container-Logs anzeigen
 docker-compose logs -f
 
-# Health Check
-curl http://localhost:8003/health
+# Container Health Status prüfen
+docker ps | grep qolaba-mcp-server
+
+# Detaillierter Health Check Status
+docker inspect --format='{{.State.Health.Status}}' qolaba-mcp-server
+
+# MCP Server Endpoint (SSE) testen
+curl http://localhost:8003/sse
 ```
+
+> 💡 **Hinweis**: Der Container hat einen internen Health Check auf Port 8001, der automatisch von Docker überwacht wird. Der MCP SSE-Server läuft auf Port 8000 (extern als 8003).
 
 ## 🔧 Claude Desktop Integration
 
@@ -208,23 +216,21 @@ Klicke auf **"+ Add environment variable"** und füge hinzu:
 
 #### Schritt 7: Testen
 
-Öffne einen neuen Browser-Tab und gehe zu:
+1. In Portainer, schaue nach dem Container-Status. Es sollte **"healthy"** neben dem grünen Symbol stehen.
 
-```
-http://DEINE_NAS_IP:8003/health
-```
+2. Klicke auf den Container, dann auf **"Logs"**. Du solltest sehen:
+   ```
+   Starting Qolaba MCP Server in http mode
+   Health Check Server läuft auf Port 8001
+   Using HTTP transport on 0.0.0.0:8000
+   ```
 
-Du solltest eine JSON-Antwort sehen:
-```json
-{
-  "status": "healthy",
-  "service": "qolaba-mcp-server",
-  "timestamp": "2024-01-15T12:30:45.123456",
-  "credentials_configured": true
-}
-```
+3. Teste den MCP SSE Endpoint im Browser oder Terminal:
+   ```bash
+   curl http://DEINE_NAS_IP:8003/sse
+   ```
 
-✅ Wenn `credentials_configured: true` angezeigt wird, funktioniert alles!
+✅ Wenn der Container Status "healthy" ist und die Logs keine Fehler zeigen, funktioniert alles!
 
 ### Alternative: Repository-basiertes Deployment
 
@@ -258,19 +264,17 @@ docker ps -a | grep qolaba
 ### API-Fehler
 
 ```bash
-# Health Check
-curl http://localhost:8003/health
+# Container Health Status prüfen
+docker inspect --format='{{.State.Health.Status}}' qolaba-mcp-server
 
-# Erwartete Antwort
-{
-  "status": "healthy",
-  "credentials_configured": true
-}
+# Container Logs prüfen
+docker-compose logs qolaba-mcp-server | tail -20
 ```
 
-Wenn `credentials_configured: false`:
-- Überprüfe die `.env` Datei
+Wenn der Container unhealthy ist oder Credential-Fehler auftreten:
+- Überprüfe die `.env` Datei (müssen QOLABA_API_TOKEN und QOLABA_ORG_ID gesetzt sein)
 - Container neu starten: `docker-compose restart`
+- Logs prüfen auf "credentials_configured: false"
 
 ### Claude Desktop verbindet nicht
 
@@ -335,11 +339,14 @@ docker inspect qolaba-mcp-server
 ### Health Check
 
 ```bash
-# Schneller Check
-curl http://localhost:8003/health
+# Container Health Status
+docker inspect --format='{{.State.Health.Status}}' qolaba-mcp-server
 
-# Mit Details
-curl -s http://localhost:8003/health | python -m json.tool
+# Health Check Details
+docker inspect --format='{{json .State.Health}}' qolaba-mcp-server | python -m json.tool
+
+# Direkter Health Check im Container (nur intern verfügbar)
+docker exec qolaba-mcp-server curl -s http://localhost:8001/health
 ```
 
 ## 🔒 Sicherheit

@@ -9,8 +9,11 @@ import sys
 import json
 import logging
 import argparse
+import asyncio
+import threading
 from typing import Optional, List, Dict, Any
 from datetime import datetime
+from http.server import HTTPServer, BaseHTTPRequestHandler
 
 import httpx
 from dotenv import load_dotenv
@@ -300,16 +303,38 @@ async def qolaba_search(
     return f"Web-Suchergebnisse für: '{query}'\n\n{result}"
 
 
-# Health Check Endpoint für Docker
-@mcp.route("/health")
-async def health_check():
-    """Health Check Endpoint für Docker und Monitoring"""
-    return {
-        "status": "healthy",
-        "service": "qolaba-mcp-server",
-        "timestamp": datetime.utcnow().isoformat(),
-        "credentials_configured": bool(QOLABA_API_TOKEN and QOLABA_ORG_ID)
-    }
+# Health Check HTTP Server (läuft parallel zum MCP Server)
+class HealthCheckHandler(BaseHTTPRequestHandler):
+    """Einfacher HTTP Handler für Health Checks"""
+
+    def do_GET(self):
+        """Handle GET requests"""
+        if self.path == "/health":
+            self.send_response(200)
+            self.send_header("Content-Type", "application/json")
+            self.end_headers()
+
+            health_data = {
+                "status": "healthy",
+                "service": "qolaba-mcp-server",
+                "timestamp": datetime.utcnow().isoformat(),
+                "credentials_configured": bool(QOLABA_API_TOKEN and QOLABA_ORG_ID)
+            }
+            self.wfile.write(json.dumps(health_data).encode())
+        else:
+            self.send_response(404)
+            self.end_headers()
+
+    def log_message(self, format, *args):
+        """Disable default logging to avoid clutter"""
+        pass
+
+
+def start_health_check_server(port: int = 8001):
+    """Startet den Health Check HTTP Server in einem separaten Thread"""
+    server = HTTPServer(("0.0.0.0", port), HealthCheckHandler)
+    logger.info(f"Health Check Server läuft auf Port {port}")
+    server.serve_forever()
 
 
 def main():
@@ -346,6 +371,16 @@ def main():
     else:
         # HTTP Transport mit SSE für Remote-Zugriff
         logger.info(f"Using HTTP transport on {args.host}:{args.port}")
+
+        # Health Check Server in separatem Thread starten (auf Port 8001)
+        health_thread = threading.Thread(
+            target=start_health_check_server,
+            args=(8001,),
+            daemon=True
+        )
+        health_thread.start()
+
+        # MCP Server starten (Blocking)
         mcp.run(
             transport="sse",
             host=args.host,
