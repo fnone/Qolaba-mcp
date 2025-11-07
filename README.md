@@ -29,20 +29,35 @@ cd qolaba-mcp-server
 
 ### 2. Umgebungsvariablen konfigurieren
 
+> ⚠️ **WICHTIG**: Dieser Schritt ist **ERFORDERLICH**! Ohne `.env` Datei startet der Container nicht!
+
 Erstelle eine `.env` Datei aus der Vorlage:
 
 ```bash
 cp .env.example .env
 ```
 
-Öffne `.env` und trage deine Credentials ein:
+Öffne `.env` und trage deine **echten Credentials** ein:
 
-```env
-QOLABA_API_TOKEN=dein_api_token_hier
-QOLABA_ORG_ID=deine_organization_id_hier
+```bash
+# Mit einem Editor deiner Wahl
+nano .env
+# oder
+vim .env
 ```
 
-> 💡 **Credentials erhalten**: Gehe zu [https://qolaba.ai/dashboard](https://qolaba.ai/dashboard) und erstelle einen API-Token.
+Die `.env` Datei muss enthalten:
+
+```env
+QOLABA_API_TOKEN=qol_live_xxxxxxxxxxxxxxxxx
+QOLABA_ORG_ID=org_xxxxxxxxxxxxxx
+```
+
+> 💡 **Credentials erhalten**:
+> 1. Gehe zu [https://qolaba.ai/dashboard](https://qolaba.ai/dashboard)
+> 2. Erstelle einen API-Token
+> 3. Kopiere Token und Organization ID
+> 4. Trage sie in die `.env` Datei ein
 
 ### 3. Container starten
 
@@ -246,20 +261,54 @@ Wenn dein NAS direkten Git-Zugriff hat:
 
 ## 🔍 Troubleshooting
 
-### Container startet nicht
+### ❌ Container startet nicht - "QOLABA_API_TOKEN must be set"
+
+**Problem**: Die `.env` Datei existiert nicht oder ist leer.
+
+**Lösung**:
+
+```bash
+# 1. Prüfe ob .env Datei existiert
+ls -la | grep .env
+
+# Sollte zeigen:
+# -rw-r--r-- 1 user user  xxx .env         <-- muss existieren!
+# -rw-r--r-- 1 user user  xxx .env.example
+
+# 2. Falls .env fehlt:
+cp .env.example .env
+
+# 3. Bearbeite .env und trage echte Credentials ein
+nano .env
+
+# 4. Validiere .env Inhalt
+cat .env
+# Sollte zeigen:
+# QOLABA_API_TOKEN=qol_live_...
+# QOLABA_ORG_ID=org_...
+
+# 5. Container neu starten
+docker compose down
+docker compose up -d
+```
+
+### Container startet aber ist "unhealthy"
 
 ```bash
 # Logs anzeigen
-docker-compose logs qolaba-mcp
+docker compose logs qolaba-mcp
 
 # Container Status prüfen
 docker ps -a | grep qolaba
+
+# Health Status prüfen
+docker inspect --format='{{.State.Health.Status}}' qolaba-mcp-server
 ```
 
 **Häufige Probleme:**
-- ❌ **"QOLABA_API_TOKEN must be set"**: `.env` Datei fehlt oder ist leer
-- ❌ **"Permission denied"**: Führe `chmod +x qolaba_server.py` aus
+- ❌ **Credentials falsch**: Prüfe Token und Org-ID auf dem Dashboard
 - ❌ **Port bereits belegt**: Ändere `8003` in `docker-compose.yml`
+- ❌ **Health Check schlägt fehl**: Warte 30 Sekunden, dann neu prüfen
 
 ### API-Fehler
 
