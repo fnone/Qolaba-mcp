@@ -34,7 +34,7 @@ logging.basicConfig(
 logger = logging.getLogger(__name__)
 
 # Qolaba API Configuration
-QOLABA_API_BASE = "https://api.qolaba.ai/v1"
+QOLABA_API_BASE = "https://api.qolaba.ai"
 QOLABA_API_TOKEN = os.getenv("QOLABA_API_TOKEN")
 QOLABA_ORG_ID = os.getenv("QOLABA_ORG_ID")
 
@@ -49,14 +49,76 @@ if not QOLABA_API_TOKEN or not QOLABA_ORG_ID:
 # FastMCP Server initialisieren
 mcp = FastMCP("Qolaba AI MCP Server")
 
+# Modell-Mapping: Nutzer-freundliche Namen → Qolaba API Format
+MODEL_MAPPING = {
+    # Gemini
+    "gemini-2.5-pro": ("GeminiAI", "gemini-2.5-pro"),
+    "gemini-2.5-flash": ("GeminiAI", "gemini-2.5-flash"),
+    "gemini-1.5-flash": ("GeminiAI", "gemini-2.5-flash"),  # Fallback auf 2.5
+    "gemini-1.5-pro": ("GeminiAI", "gemini-2.5-pro"),      # Fallback auf 2.5
+
+    # Claude
+    "claude-3-7-sonnet-latest": ("ClaudeAI", "claude-3-7-sonnet-latest"),
+    "claude-opus-4-20250514": ("ClaudeAI", "claude-opus-4-20250514"),
+    "claude-sonnet-4-20250514": ("ClaudeAI", "claude-sonnet-4-20250514"),
+    "claude-3-5-sonnet-20240620": ("ClaudeAI", "claude-3-7-sonnet-latest"),  # Fallback
+    "claude-3-opus-20240229": ("ClaudeAI", "claude-opus-4-20250514"),       # Fallback
+
+    # OpenAI
+    "gpt-4.1-mini-2025-04-14": ("OpenAI", "gpt-4.1-mini-2025-04-14"),
+    "gpt-4o-mini": ("OpenAI", "gpt-4o-mini"),
+    "gpt-4.1-2025-04-14": ("OpenAI", "gpt-4.1-2025-04-14"),
+    "gpt-4o": ("OpenAI", "gpt-4.1-2025-04-14"),  # Fallback
+    "o3-mini": ("OpenAI", "o3-mini"),
+    "o1": ("OpenAI", "o1"),
+    "o3": ("OpenAI", "o3"),
+
+    # OpenRouter
+    "grok-3-beta": ("OpenRouterAI", "x-ai/grok-3-beta"),
+    "grok-3-mini-beta": ("OpenRouterAI", "x-ai/grok-3-mini-beta"),
+    "sonar-pro": ("OpenRouterAI", "perplexity/sonar-pro"),
+    "deepseek-chat": ("OpenRouterAI", "deepseek/deepseek-chat"),
+    "deepseek-r1": ("OpenRouterAI", "deepseek/deepseek-r1"),
+}
+
+
+def parse_model(model_input: str) -> tuple[str, str]:
+    """
+    Konvertiert Modellnamen in Qolaba API Format (llm, llm_model).
+
+    Args:
+        model_input: Modellname vom User (z.B. "gemini-2.5-flash" oder "claude-3-7-sonnet-latest")
+
+    Returns:
+        Tuple (llm, llm_model) für Qolaba API
+    """
+    model_lower = model_input.lower().strip()
+
+    if model_lower in MODEL_MAPPING:
+        return MODEL_MAPPING[model_lower]
+
+    # Auto-Detect basierend auf Prefix
+    if "gemini" in model_lower:
+        return ("GeminiAI", "gemini-2.5-flash")  # Default
+    elif "claude" in model_lower:
+        return ("ClaudeAI", "claude-3-7-sonnet-latest")  # Default
+    elif "gpt" in model_lower or "o3" in model_lower or "o1" in model_lower:
+        return ("OpenAI", "gpt-4o-mini")  # Default
+    elif "grok" in model_lower or "deepseek" in model_lower or "sonar" in model_lower:
+        return ("OpenRouterAI", model_input)
+    else:
+        # Fallback: Gemini
+        logger.warning(f"Unbekanntes Modell '{model_input}', nutze gemini-2.5-flash")
+        return ("GeminiAI", "gemini-2.5-flash")
+
+
 # HTTP Client für API Requests
 async def get_http_client() -> httpx.AsyncClient:
     """Erstellt einen konfigurierten HTTP Client für Qolaba API"""
     return httpx.AsyncClient(
         headers={
             "Authorization": f"Bearer {QOLABA_API_TOKEN}",
-            "Content-Type": "application/json",
-            "X-Organization-ID": QOLABA_ORG_ID
+            "Content-Type": "application/json"
         },
         timeout=httpx.Timeout(60.0)
     )
@@ -65,77 +127,97 @@ async def get_http_client() -> httpx.AsyncClient:
 @mcp.tool()
 async def qolaba_chat(
     prompt: str,
-    model: str = "gemini-1.5-flash",
+    model: str = "gemini-2.5-flash",
     internet_search: bool = False,
     code_execution: bool = False,
     rag: bool = False,
-    temperature: float = 0.7,
-    max_tokens: int = 2048
+    temperature: float = 0.7
 ) -> str:
     """
     Chattet mit einem AI-Modell über die Qolaba API.
 
     Args:
         prompt: Die Nachricht/Frage an das Modell
-        model: Das zu verwendende Modell (gemini-1.5-flash, claude-3-5-sonnet-20240620, gpt-4o, etc.)
+        model: Das zu verwendende Modell (gemini-2.5-flash, claude-3-7-sonnet-latest, gpt-4o-mini, etc.)
         internet_search: Aktiviert Web-Suche für aktuelle Informationen
-        code_execution: Erlaubt dem Modell Code auszuführen
+        code_execution: Erlaubt dem Modell Python-Code auszuführen
         rag: Aktiviert Retrieval Augmented Generation (nutzt Vector Store)
         temperature: Kreativität (0.0-1.0)
-        max_tokens: Maximale Antwortlänge
 
     Returns:
         Die Antwort des AI-Modells
     """
-    logger.info(f"Chat Request - Model: {model}, Internet: {internet_search}, RAG: {rag}")
+    # Modell-Mapping
+    llm, llm_model = parse_model(model)
+    logger.info(f"Chat Request - LLM: {llm}, Model: {llm_model}, Internet: {internet_search}, Code: {code_execution}, RAG: {rag}")
 
     try:
         async with await get_http_client() as client:
+            # Qolaba API Request Format
             payload = {
-                "model": model,
-                "messages": [
+                "llm": llm,
+                "llm_model": llm_model,
+                "history": [
                     {
                         "role": "user",
-                        "content": prompt
+                        "content": {
+                            "text": prompt,
+                            "image_data": []
+                        }
                     }
                 ],
                 "temperature": temperature,
-                "max_tokens": max_tokens,
-                "internet_search": internet_search,
-                "code_execution": code_execution,
-                "rag": rag
+                "image_analyze": False,
+                "enable_tool": internet_search or code_execution or rag,
+                "tools": {
+                    "tool_list": {
+                        "internet_search": internet_search,
+                        "python_code_execution_tool": code_execution,
+                        "search_doc": rag,
+                        "image_generation": False,
+                        "image_generation1": False,
+                        "image_editing": False,
+                        "csv_analysis": False
+                    },
+                    "number_of_context": 3,
+                    "pdf_references": [],
+                    "embedding_model": ["text-embedding-3-large"] if rag else [],
+                    "image_generation_parameters": {}
+                }
             }
 
             logger.debug(f"Request Payload: {json.dumps(payload, indent=2)}")
 
+            # Streaming Response
             response = await client.post(
                 f"{QOLABA_API_BASE}/chat",
                 json=payload
             )
             response.raise_for_status()
 
+            # Qolaba gibt Streaming Response zurück
             result = response.json()
             logger.info(f"Chat Response received - Status: {response.status_code}")
 
             # Antwort extrahieren
-            if "choices" in result and len(result["choices"]) > 0:
-                answer = result["choices"][0]["message"]["content"]
+            if "output" in result and result["output"]:
+                answer = result["output"]
 
-                # Zusätzliche Metadaten wenn vorhanden
+                # Token-Metadaten wenn vorhanden
                 metadata = []
-                if result.get("usage"):
-                    usage = result["usage"]
-                    metadata.append(f"Tokens: {usage.get('total_tokens', 'N/A')}")
-
-                if internet_search and result.get("search_results"):
-                    metadata.append(f"Suchquellen: {len(result['search_results'])}")
+                if result.get("promptTokens"):
+                    metadata.append(f"Prompt Tokens: {result['promptTokens']}")
+                if result.get("completionTokens"):
+                    metadata.append(f"Completion Tokens: {result['completionTokens']}")
 
                 if metadata:
-                    answer += f"\n\n[Metadata: {', '.join(metadata)}]"
+                    answer += f"\n\n[{', '.join(metadata)}]"
 
                 return answer
             else:
-                return f"Keine Antwort erhalten. Response: {json.dumps(result)}"
+                # Fallback: Gesamte Response zurückgeben
+                logger.warning(f"Unexpected response format: {result}")
+                return str(result)
 
     except httpx.HTTPStatusError as e:
         error_msg = f"HTTP Error {e.response.status_code}: {e.response.text}"
@@ -157,43 +239,54 @@ async def qolaba_list_models() -> str:
     """
     logger.info("Listing available models")
 
-    # Bekannte Modelle basierend auf Qolaba Dokumentation
-    # Da die API keinen /models Endpoint hat, geben wir die dokumentierten zurück
+    # Aktuelle Modelle laut Qolaba API Dokumentation (Stand: 2025)
     models = {
-        "Google Gemini": [
-            "gemini-1.5-flash",
-            "gemini-1.5-pro",
-            "gemini-2.0-flash-exp"
+        "🌟 Google Gemini (GeminiAI)": [
+            "gemini-2.5-pro - Leistungsstark für komplexe Tasks",
+            "gemini-2.5-flash - Schnell und kosteneffizient (Standard)"
         ],
-        "Anthropic Claude": [
-            "claude-3-5-sonnet-20240620",
-            "claude-3-opus-20240229",
-            "claude-3-sonnet-20240229",
-            "claude-3-haiku-20240307"
+        "🧠 Anthropic Claude (ClaudeAI)": [
+            "claude-3-7-sonnet-latest - Neueste Sonnet Version (Empfohlen)",
+            "claude-opus-4-20250514 - Höchste Qualität",
+            "claude-sonnet-4-20250514 - Balance aus Qualität und Geschwindigkeit"
         ],
-        "OpenAI GPT": [
-            "gpt-4o",
-            "gpt-4o-mini",
-            "gpt-4-turbo",
-            "gpt-3.5-turbo"
+        "🤖 OpenAI GPT": [
+            "gpt-4.1-2025-04-14 - Neuestes GPT-4.1 Modell",
+            "gpt-4.1-mini-2025-04-14 - GPT-4.1 Mini",
+            "gpt-4o-mini - Schnell und günstig",
+            "o3-mini - Reasoning Model (Mini)",
+            "o1 - Advanced Reasoning",
+            "o3 - Latest Reasoning Model"
         ],
-        "Other": [
-            "llama-3.1-70b-versatile",
-            "llama-3.1-8b-instant"
+        "🚀 OpenRouter (Spezialmodelle)": [
+            "x-ai/grok-3-beta - xAI Grok 3",
+            "x-ai/grok-3-mini-beta - xAI Grok 3 Mini",
+            "perplexity/sonar-pro - Perplexity Suche",
+            "perplexity/sonar-reasoning-pro - Reasoning + Suche",
+            "perplexity/sonar-deep-research - Deep Research",
+            "deepseek/deepseek-chat - DeepSeek Chat",
+            "deepseek/deepseek-r1 - DeepSeek Reasoning"
         ]
     }
 
-    output = ["Verfügbare Modelle in Qolaba AI:\n"]
+    output = ["📋 Verfügbare Modelle in Qolaba AI (2025)\n"]
 
     for provider, model_list in models.items():
         output.append(f"\n{provider}:")
         for model in model_list:
             output.append(f"  • {model}")
 
-    output.append("\n\nEmpfohlene Modelle:")
-    output.append("  • gemini-1.5-flash: Schnell und günstig für einfache Tasks")
-    output.append("  • claude-3-5-sonnet-20240620: Beste Balance aus Qualität und Geschwindigkeit")
-    output.append("  • gpt-4o: Sehr leistungsfähig für komplexe Aufgaben")
+    output.append("\n\n💡 Empfehlungen:")
+    output.append("  🎯 Allgemein: gemini-2.5-flash (schnell, günstig)")
+    output.append("  🧠 Qualität: claude-3-7-sonnet-latest (beste Balance)")
+    output.append("  🚀 Leistung: claude-opus-4-20250514 (höchste Qualität)")
+    output.append("  🔬 Reasoning: deepseek-r1 oder o3 (logisches Denken)")
+    output.append("  🔍 Recherche: perplexity/sonar-pro (mit Web-Suche)")
+
+    output.append("\n\n🛠️ Features:")
+    output.append("  • internet_search=true → Web-Recherche aktivieren")
+    output.append("  • code_execution=true → Python Code ausführen")
+    output.append("  • rag=true → Dokumente aus Vector Store nutzen")
 
     return "\n".join(output)
 
