@@ -1,0 +1,61 @@
+version: '3.8'
+
+services:
+  qolaba-mcp:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: qolaba-mcp-server
+    image: qolaba-mcp-server:latest
+
+    # Port Mapping - Extern 8003, Intern 8000
+    ports:
+      - "8003:8000"
+
+    # Environment Variables - aus .env Datei
+    environment:
+      - QOLABA_API_TOKEN=${QOLABA_API_TOKEN}
+      - QOLABA_ORG_ID=${QOLABA_ORG_ID}
+      - MCP_TRANSPORT=http
+      - PORT=8000
+
+    # Volumes für persistente Logs
+    volumes:
+      - ./logs:/app/logs
+
+    # Restart Policy
+    restart: unless-stopped
+
+    # Health Check
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8000/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 10s
+
+    # Resource Limits für Stabilität
+    deploy:
+      resources:
+        limits:
+          cpus: '1.0'
+          memory: 512M
+        reservations:
+          cpus: '0.25'
+          memory: 128M
+
+    # Logging Configuration mit Rotation
+    logging:
+      driver: "json-file"
+      options:
+        max-size: "10m"
+        max-file: "3"
+
+    # Network Mode
+    networks:
+      - qolaba-network
+
+# Separates Network für Isolation
+networks:
+  qolaba-network:
+    driver: bridge

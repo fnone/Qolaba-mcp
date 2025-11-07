@@ -1,0 +1,15 @@
+# FastMCP - Model Context Protocol Server Framework
+fastmcp>=0.1.0
+
+# HTTP Client für API Requests
+httpx>=0.27.0
+
+# Environment Variables Management
+python-dotenv>=1.0.0
+
+# ASGI Server für HTTP Transport
+uvicorn[standard]>=0.30.0
+
+# Zusätzliche Dependencies für Logging und Performance
+aiofiles>=23.2.1
+pydantic>=2.0.0
