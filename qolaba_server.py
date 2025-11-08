@@ -115,9 +115,9 @@ def parse_model(model_input: str) -> tuple[str, str]:
 # HTTP Client für API Requests
 async def get_http_client() -> httpx.AsyncClient:
     """Erstellt einen konfigurierten HTTP Client für Qolaba API"""
+    # Qolaba authentifiziert über token/orgID im Body, NICHT über Authorization Header
     return httpx.AsyncClient(
         headers={
-            "Authorization": f"Bearer {QOLABA_API_TOKEN}",
             "Content-Type": "application/json"
         },
         timeout=httpx.Timeout(60.0)
