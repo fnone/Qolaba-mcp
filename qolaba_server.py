@@ -195,6 +195,10 @@ async def qolaba_chat(
 
             logger.debug(f"Request Payload: {json.dumps(payload, indent=2)}")
 
+            # TEMP DEBUG: Zeige Token/OrgID ohne sensible Daten preiszugeben
+            logger.info(f"DEBUG - Token length: {len(QOLABA_API_TOKEN) if QOLABA_API_TOKEN else 0}, OrgID length: {len(QOLABA_ORG_ID) if QOLABA_ORG_ID else 0}")
+            logger.info(f"DEBUG - Token in payload: {len(payload.get('token', ''))}, OrgID in payload: {len(payload.get('orgID', ''))}")
+
             # POST Request
             response = await client.post(
                 f"{QOLABA_API_BASE}/chat",
