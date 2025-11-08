@@ -49,8 +49,8 @@ vim .env
 Die `.env` Datei muss enthalten:
 
 ```env
-QOLABA_API_TOKEN=qol_live_xxxxxxxxxxxxxxxxx
-QOLABA_ORG_ID=org_xxxxxxxxxxxxxx
+QOLABA_API_TOKEN=xxxxxxxxxxxxxxxxx
+QOLABA_ORG_ID=xxxxxxxxxxxxxx
 ```
 
 > 💡 **Credentials erhalten**:
@@ -58,6 +58,11 @@ QOLABA_ORG_ID=org_xxxxxxxxxxxxxx
 > 2. Erstelle einen API-Token
 > 3. Kopiere Token und Organization ID
 > 4. Trage sie in die `.env` Datei ein
+>
+> ⚠️ **WICHTIG - Credential Format**:
+> - **Token**: Trage NUR den Token ein, OHNE "qol_live_" Prefix
+> - **Org-ID**: Trage NUR die ID ein, OHNE "org_" Prefix
+> - Beispiel: Wenn der Token "qol_live_abc123" ist → trage nur "abc123" ein
 
 ### 3. Container starten
 
@@ -292,6 +297,35 @@ docker compose down
 docker compose up -d
 ```
 
+### ❌ Container startet aber API gibt 401 Unauthorized
+
+**Problem**: Authentifizierungsfehler trotz korrekter Credentials im Dashboard.
+
+**Ursache**: Falsches Credential-Format in `.env` Datei.
+
+**Lösung**:
+
+```bash
+# Prüfe deine .env Datei
+cat .env
+
+# ❌ FALSCH - Mit Prefixes:
+QOLABA_API_TOKEN=qol_live_abc123xyz
+QOLABA_ORG_ID=org_abc123xyz
+
+# ✅ RICHTIG - Ohne Prefixes:
+QOLABA_API_TOKEN=abc123xyz
+QOLABA_ORG_ID=abc123xyz
+```
+
+**Wichtig**: Entferne die Prefixes `qol_live_` und `org_` aus den Credentials!
+
+Nach der Korrektur:
+```bash
+docker compose down
+docker compose up -d
+```
+
 ### Container startet aber ist "unhealthy"
 
 ```bash
@@ -306,7 +340,7 @@ docker inspect --format='{{.State.Health.Status}}' qolaba-mcp-server
 ```
 
 **Häufige Probleme:**
-- ❌ **Credentials falsch**: Prüfe Token und Org-ID auf dem Dashboard
+- ❌ **Credentials falsch**: Prüfe Token und Org-ID auf dem Dashboard UND das Format (keine Prefixes!)
 - ❌ **Port bereits belegt**: Ändere `8003` in `docker-compose.yml`
 - ❌ **Health Check schlägt fehl**: Warte 30 Sekunden, dann neu prüfen
 
