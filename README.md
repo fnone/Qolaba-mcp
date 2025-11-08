@@ -131,6 +131,39 @@ Für Remote-Server ersetze `localhost` mit der IP deines Servers.
 
 Nach der Konfiguration **Claude Desktop neu starten**.
 
+## 🌐 Andere MCP-kompatible Clients
+
+Der Qolaba MCP Server kann von **mehreren Clients gleichzeitig** genutzt werden!
+
+### Gemini CLI Integration
+
+Detaillierte Schritt-für-Schritt-Anleitung für Gemini CLI:
+
+📖 **[Gemini CLI Setup Guide](GEMINI_CLI_SETUP.md)**
+
+**Schnellkonfiguration** für `~/.gemini/settings.json`:
+
+```json
+{
+  "mcpServers": {
+    "qolaba": {
+      "command": "npx",
+      "args": [
+        "-y",
+        "@modelcontextprotocol/client",
+        "http://localhost:8003/sse"
+      ]
+    }
+  }
+}
+```
+
+### Andere MCP Clients
+
+Der Server unterstützt alle MCP-kompatiblen Clients über:
+- **HTTP/SSE**: `http://localhost:8003/sse`
+- **Stdio**: `docker exec -i qolaba-mcp-server python /app/qolaba_server.py`
+
 ## 🛠️ Verfügbare Tools
 
 Der MCP Server stellt folgende Tools bereit:
