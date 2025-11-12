@@ -27,111 +27,130 @@ async def stdio_to_sse_bridge():
 
     Liest JSON-RPC von stdin, forwarded zu SSE Server, schreibt Antworten zu stdout
     """
-    async with AsyncExitStack() as stack:
-        # Verbinde zum SSE Server
-        logger.info(f"Connecting to SSE server: {SSE_URL}")
+    session = None
+    initialized = False
 
-        read_stream, write_stream = await stack.enter_async_context(
-            sse_client(SSE_URL)
-        )
+    # Main loop: Forward stdio <-> SSE
+    try:
+        while True:
+            # Lies von stdin
+            loop = asyncio.get_event_loop()
+            line = await loop.run_in_executor(None, sys.stdin.readline)
 
-        session = await stack.enter_async_context(
-            ClientSession(read_stream, write_stream)
-        )
+            if not line:
+                break
 
-        # Initialize Session
-        await session.initialize()
-        logger.info("Session initialized")
+            try:
+                message = json.loads(line.strip())
+                logger.debug(f"Received from stdin: {message}")
 
-        # Tools vom Server abrufen und zu stdout ausgeben
-        tools = await session.list_tools()
+                method = message.get("method")
+                msg_id = message.get("id")
 
-        # Sende initialize response
-        init_response = {
-            "jsonrpc": "2.0",
-            "result": {
-                "protocolVersion": "2024-11-05",
-                "capabilities": {
-                    "tools": {},
-                },
-                "serverInfo": {
-                    "name": "qolaba-bridge",
-                    "version": "1.0.0"
+                if method == "initialize":
+                    # Jetzt erst zum SSE Server verbinden
+                    logger.info(f"Connecting to SSE server: {SSE_URL}")
+
+                    async with AsyncExitStack() as stack:
+                        read_stream, write_stream = await stack.enter_async_context(
+                            sse_client(SSE_URL)
+                        )
+
+                        session = await stack.enter_async_context(
+                            ClientSession(read_stream, write_stream)
+                        )
+
+                        await session.initialize()
+                        logger.info("Session initialized")
+
+                        # Sende initialize response mit korrekter ID
+                        init_response = {
+                            "jsonrpc": "2.0",
+                            "result": {
+                                "protocolVersion": "2024-11-05",
+                                "capabilities": {
+                                    "tools": {},
+                                },
+                                "serverInfo": {
+                                    "name": "qolaba-bridge",
+                                    "version": "1.0.0"
+                                }
+                            },
+                            "id": msg_id
+                        }
+                        print(json.dumps(init_response), flush=True)
+                        initialized = True
+
+                        # Bleibe in der Session und handle weitere Requests
+                        while True:
+                            line = await loop.run_in_executor(None, sys.stdin.readline)
+                            if not line:
+                                return
+
+                            try:
+                                message = json.loads(line.strip())
+                                method = message.get("method")
+                                msg_id = message.get("id")
+
+                                if method == "tools/list":
+                                    tools = await session.list_tools()
+                                    response = {
+                                        "jsonrpc": "2.0",
+                                        "result": {"tools": [t.model_dump() for t in tools]},
+                                        "id": msg_id
+                                    }
+                                    print(json.dumps(response), flush=True)
+
+                                elif method == "tools/call":
+                                    params = message.get("params", {})
+                                    tool_name = params.get("name")
+                                    arguments = params.get("arguments", {})
+
+                                    result = await session.call_tool(tool_name, arguments)
+                                    response = {
+                                        "jsonrpc": "2.0",
+                                        "result": {"content": result.content},
+                                        "id": msg_id
+                                    }
+                                    print(json.dumps(response), flush=True)
+
+                                else:
+                                    error = {
+                                        "jsonrpc": "2.0",
+                                        "error": {"code": -32601, "message": f"Method not found: {method}"},
+                                        "id": msg_id
+                                    }
+                                    print(json.dumps(error), flush=True)
+
+                            except json.JSONDecodeError:
+                                pass
+                            except Exception as e:
+                                logger.exception("Error in inner loop")
+                                error = {
+                                    "jsonrpc": "2.0",
+                                    "error": {"code": -32603, "message": f"Internal error: {str(e)}"},
+                                    "id": msg_id if 'msg_id' in locals() else None
+                                }
+                                print(json.dumps(error), flush=True)
+
+            except json.JSONDecodeError as e:
+                error = {
+                    "jsonrpc": "2.0",
+                    "error": {"code": -32700, "message": f"Parse error: {e}"},
+                    "id": None
                 }
-            },
-            "id": 1
-        }
-        print(json.dumps(init_response), flush=True)
+                print(json.dumps(error), flush=True)
+            except Exception as e:
+                logger.exception("Error in outer loop")
+                error = {
+                    "jsonrpc": "2.0",
+                    "error": {"code": -32603, "message": f"Internal error: {str(e)}"},
+                    "id": message.get("id") if 'message' in locals() else None
+                }
+                print(json.dumps(error), flush=True)
 
-        # Main loop: Forward stdio <-> SSE
-        try:
-            while True:
-                # Lies von stdin (non-blocking)
-                loop = asyncio.get_event_loop()
-                line = await loop.run_in_executor(None, sys.stdin.readline)
-
-                if not line:
-                    break
-
-                try:
-                    message = json.loads(line.strip())
-                    logger.debug(f"Received from stdin: {message}")
-
-                    # Handle verschiedene Message-Typen
-                    method = message.get("method")
-
-                    if method == "initialize":
-                        # Already sent above
-                        continue
-                    elif method == "tools/list":
-                        # Forward zu Server
-                        tools = await session.list_tools()
-                        response = {
-                            "jsonrpc": "2.0",
-                            "result": {"tools": [t.model_dump() for t in tools]},
-                            "id": message.get("id")
-                        }
-                        print(json.dumps(response), flush=True)
-                    elif method == "tools/call":
-                        # Forward tool call
-                        params = message.get("params", {})
-                        tool_name = params.get("name")
-                        arguments = params.get("arguments", {})
-
-                        result = await session.call_tool(tool_name, arguments)
-                        response = {
-                            "jsonrpc": "2.0",
-                            "result": {"content": result.content},
-                            "id": message.get("id")
-                        }
-                        print(json.dumps(response), flush=True)
-                    else:
-                        # Unknown method
-                        error = {
-                            "jsonrpc": "2.0",
-                            "error": {"code": -32601, "message": f"Method not found: {method}"},
-                            "id": message.get("id")
-                        }
-                        print(json.dumps(error), flush=True)
-
-                except json.JSONDecodeError as e:
-                    error = {
-                        "jsonrpc": "2.0",
-                        "error": {"code": -32700, "message": f"Parse error: {e}"},
-                        "id": None
-                    }
-                    print(json.dumps(error), flush=True)
-                except Exception as e:
-                    logger.exception("Error processing message")
-                    error = {
-                        "jsonrpc": "2.0",
-                        "error": {"code": -32603, "message": f"Internal error: {e}"},
-                        "id": message.get("id") if 'message' in locals() else None
-                    }
-                    print(json.dumps(error), flush=True)
-
-        except KeyboardInterrupt:
-            pass
+    except KeyboardInterrupt:
+        pass
 
 
 if __name__ == "__main__":
